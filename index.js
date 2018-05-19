@@ -1,40 +1,85 @@
-const assert = require('assert')
-const Mastodon = require('@lagunehq/core')
+import assert from 'assert'
+import {asyncFilter, asyncIterToArray, asyncSlice} from 'iter-tools'
+import Mastodon from '@lagunehq/core'
 
-const {MRB_INSTANCE_DOMAIN, MRB_ACCESS_TOKEN} = process.env
+const {MRB_INSTANCE_URL, MRB_ACCESS_TOKEN} = process.env
 
-assert(MRB_INSTANCE_DOMAIN, 'MRB_INSTANCE_DOMAIN environment var is required')
+assert(MRB_INSTANCE_URL, 'MRB_INSTANCE_URL environment var is required')
 assert(MRB_ACCESS_TOKEN, 'MWB_ACCESS_TOKEN environment var is required')
+
+const MAXIMUM_FETCH_REQUESTS = 290
+const MAXIMUM_REBLOG_REQUESTS = 3
 
 main()
 
 async function main() {
-	const client = new Mastodon.default()
+	const client = new Mastodon()
 
-	client.setUrl(`https://${MRB_INSTANCE_DOMAIN}`)
+	client.setUrl(MRB_INSTANCE_URL)
 	client.setToken(MRB_ACCESS_TOKEN)
 
-	// TODO: replace Array.prototype methods by more efficent functions using iterators
+	console.log(`Fetching statuses... (${MAXIMUM_FETCH_REQUESTS} requests maximum)`)
 
-	// fetch public favourited statuses
-	// TODO: need to fetch moar statuses !
-	// NOTE: oh, and should use public timeline instead of home timeline ofc
-	const statuses = (await client.fetchHomeTimeline({ limit: 40 }))
-		.filter(status => status.visibility === 'public') // useless on public timeline
-		.filter(status => status.favourites_count > 0)
+	const favouritedStatuses = await (
+		fetchStatusesPages(client)
+			|> asyncSlice(MAXIMUM_FETCH_REQUESTS)
+			|> asyncFlatten
+			|> asyncFilter(status => status.visibility === 'public' && status.favourites_count >= 2)
+			|> asyncIterToArray
+	)
 
-	// threshold used to choose interesting statuses to reblog
-	const average = statuses.reduce((a, status) => a + status.favourites_count, 0) / statuses.length
+	if (favouritedStatuses.length) {
+		console.log(`Fetched ${favouritedStatuses.length} favourited statuses.\n`)
 
-	// not already reblogged recent statuses
-	// TODO: filter by date
-	const candidateStatuses = statuses
-		.filter(status => !status.reblogged)
+		// Threshold used to found interesting statuses to reblog.
+		// Calculated from all fetched favourited statuses favourites count average
+		const favouritesCountThreshold =
+			favouritedStatuses.reduce((acc, status) => acc + status.favourites_count, 0) / favouritedStatuses.length
 
-	// yaaay, these statuses seems interesting because they have better favourited count than our average threshold
-	const interestingStatuses = candidateStatuses
-		.filter((status) => status.favourites_count >= average)
+		const createdAtThreshold = Date.now() - (1000 * 60 * 60 * 24)
 
-	// reblog all interestingStatuses in parallel
-	// await Promise.all(interestingStatuses.map(status => client.reblogStatus(status.id)))
+		console.log(`Favourites count threshold is ${favouritesCountThreshold}.`)
+		console.log(`Created at threshold is ${createdAtThreshold.toString()}.\n`)
+
+		const interestingStatuses = favouritedStatuses
+			.filter(status => !status.reblogged
+				&& status.favourites_count >= favouritesCountThreshold
+				&& new Date(status.created_at) >= createdAtThreshold)
+
+		console.log(`Found ${interestingStatuses.length} interesting statuses.\n`)
+
+		console.log(`Reblog interesting statuses... (${MAXIMUM_REBLOG_REQUESTS} requests maximum)`)
+
+		await Promise.all(
+			interestingStatuses
+				.reverse()
+				.slice(0, MAXIMUM_REBLOG_REQUESTS)
+				.map(status => client.reblogStatus(status.id))
+		)
+
+		console.log(`Done !`)
+	} else {
+		console.log(`Not enough favourited statuses.`)
+	}
+}
+
+async function* fetchStatusesPages(client, maxId = null) {
+	const statuses = await client.fetchPublicTimeline({
+		limit: 40,
+		max_id: maxId
+	})
+
+	yield statuses
+
+	const [lastStatus] = statuses.slice(-1)
+
+	if (lastStatus) {
+		yield* fetchStatusesPages(client, lastStatus.id)
+	}
+}
+
+async function* asyncFlatten(xs) {
+	for await (const x of xs) {
+		yield* x
+	}
 }

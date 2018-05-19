@@ -4,13 +4,24 @@
   "version": "0.0.0",
   "description": "",
   "scripts": {
-    "start": "node -r dotenv/config index.js",
+    "build": "babel index.js -o index.compiled.js",
+    "start": "node -r dotenv/config -r hard-rejection/register -r @babel/polyfill -r @babel/register index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "wryk <wryk@wryk.moe>",
   "license": "MIT",
   "dependencies": {
     "@lagunehq/core": "^1.1.0",
-    "dotenv": "^5.0.1"
+    "dotenv": "^5.0.1",
+    "hard-rejection": "^1.0.0",
+    "iter-tools": "^2.0.1"
+  },
+  "devDependencies": {
+    "@babel/cli": "^7.0.0-beta.47",
+    "@babel/core": "^7.0.0-beta.47",
+    "@babel/plugin-proposal-pipeline-operator": "^7.0.0-beta.47",
+    "@babel/polyfill": "^7.0.0-beta.47",
+    "@babel/preset-env": "^7.0.0-beta.47",
+    "@babel/register": "^7.0.0-beta.47"
   }
 }
