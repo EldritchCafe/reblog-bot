@@ -2,10 +2,11 @@ import assert from 'assert'
 import {asyncFilter, asyncIterToArray, asyncSlice} from 'iter-tools'
 import Mastodon from '@lagunehq/core'
 
-const {MRB_INSTANCE_URL, MRB_ACCESS_TOKEN} = process.env
+const {MRB_INSTANCE_URL, MRB_ACCESS_TOKEN, MRB_STARTING_FROM} = process.env
 
 assert(MRB_INSTANCE_URL, 'MRB_INSTANCE_URL environment var is required')
 assert(MRB_ACCESS_TOKEN, 'MWB_ACCESS_TOKEN environment var is required')
+assert(MRB_STARTING_FROM, 'MRB_STARTING_FROM environment var is required')
 
 const MAXIMUM_FETCH_REQUESTS = 290
 const MAXIMUM_REBLOG_REQUESTS = 3
@@ -42,9 +43,14 @@ async function main() {
 		console.log(`Created at threshold is ${createdAtThreshold.toString()}.\n`)
 
 		const interestingStatuses = favouritedStatuses
-			.filter(status => !status.reblogged
-				&& status.favourites_count >= favouritesCountThreshold
-				&& new Date(status.created_at) >= createdAtThreshold)
+			.filter(status => {
+				const createdAt = new Date(status.created_at)
+
+				return !status.reblogged
+					&& createdAt >= MRB_STARTING_FROM
+					&& status.favourites_count >= favouritesCountThreshold
+					&& createdAt >= createdAtThreshold
+			})
 
 		console.log(`Found ${interestingStatuses.length} interesting statuses.\n`)
 
